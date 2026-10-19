@@ -1,0 +1,108 @@
+{
+  "skill_id": "pdd-backend-sku-sync",
+  "name": "拼多多商家后台 SKU 批量对齐与换图（RPA，不依赖开放平台API）",
+  "version": "1.0.0",
+  "status": "verified",
+  "summary": "在拼多多商家后台网页版（mms.pinduoduo.com）把目标商品全部 SKU（规格名称、拼单/单买价、库存、上下架、SKU规格预览图）对齐到参照商品；参照商品只读。用官方批量设置改价改库存上下架；SKU预览图组件只有本地上传，从参照商品提取背景图原图URL→下载本地→注入隐藏file input逐行上传→dHash校验防错位；详情页图片支持图片空间替换/拖拽排序。用浏览器自动化（豆包computer_use_tool plane=bu 或各AI的CDP），不需要拼多多开放平台API。",
+  "tags": ["拼多多", "PDD", "SKU", "批量编辑", "商品后台", "图片上传", "浏览器自动化", "RPA", "电商", "Agent学习"],
+  "triggers": {
+    "include": [
+      "把这个拼多多商品的 SKU 和参照商品对齐/一样",
+      "拼多多批量改价、改库存、批量上下架",
+      "批量替换/上传 SKU 规格预览图",
+      "详情页某张图替换或把几张图排到最前面",
+      "含下架款的 SKU 也要逐行对齐并关掉已上架开关",
+      "复制同款商品、多 SKU 灯具/商品批量编辑"
+    ],
+    "exclude": [
+      "AI 生成商品图/主图/详情页素材（那是 IMIVA ai-ecommerce-expert-* 技能）",
+      "调用拼多多开放平台 API（个人小商家申请不到）",
+      "修改参照商品"
+    ]
+  },
+  "capabilities": {
+    "inputs": [
+      "目标商品 goods_id（可改）与参照商品 goods_id（只读）",
+      "SKU 清单：功率+颜色名、拼单价/单买价、库存、上下架",
+      "已登录拼多多商家后台的 Chrome"
+    ],
+    "outputs": [
+      "目标商品 SKU 名称/价格/库存/上下架与参照一致",
+      "全部 SKU 规格预览图与参照逐行一致（dHash 距离<40）",
+      "保存草稿成功、左侧错误归零（详情页按老板点名调整）"
+    ],
+    "success_criteria": [
+      "左侧 商品优化建议=错误(0)，规格与库存无红字",
+      "保存草稿弹『保存成功』",
+      "dHash 全部行同图，下架款库存0且开关灰，上架款库存/价格/开关正确"
+    ]
+  },
+  "preconditions": {
+    "runtime": [
+      "能操作已登录商家后台的浏览器自动化环境（browser-use 或 CDP）"
+    ],
+    "dependencies": [
+      "Python+PIL（dHash 校验，可选但必做）",
+      "参照商品背景图可从 img.pddpic.com 直接下载（无需cookie）"
+    ],
+    "permissions": [
+      "仅目标商品编辑页操作；文件注入隐藏 input[type=file]"
+    ]
+  },
+  "procedure": [
+    "1. 打开目标商品与参照商品两个编辑页，参照只读。",
+    "2. 价格/库存/上下架：顶部多选下拉勾选款式→批量设置；逐行滚动核对（含下架款库存0+关开关）。",
+    "3. SKU预览图：parse参照每行[功率,颜色]，从 .goods-sku-img 的 background-image 提取原图URL；虚拟滚动收集全部行。",
+    "4. 下载参照图为 功率_颜色.jpeg（800x800合规）。",
+    "5. 目标商品每行按[功率,颜色]全等匹配，给 input[type=file][accept*=jpeg] 设id，注入对应本地文件；小步滚动遍历直至全部有图。",
+    "6. dHash 逐张比对参照图与目标图防错位。",
+    "7. 详情页换图/拖拽前置（仅按老板点名）。",
+    "8. 保存草稿；提交发布需老板确认。"
+  ],
+  "adapters": {
+    "doubao": { "entry": "computer_use_tool(plane='bu', import seed_browser_use as bu)，bu.upload_file(selector, path) 注入文件", "notes": "JS 用 bu.js(\"(()=>{...})()\") IIFE 才有返回；保存/导航后 ref 失效需重定位。" },
+    "codex": { "entry": "CDP 连登录态 Chrome，DOM.setFileInputFiles 注入文件", "notes": "选择器/parse/滚动/dHash 与 SKILL.md 通用。" },
+    "openclaw": { "entry": "CDP 同上", "notes": "表格滚动用 JS 设容器 scrollTop，不要拖滚动条。" },
+    "hermes": { "entry": "CDP 同上", "notes": "参照标签页只读，禁止保存。" },
+    "generic": { "entry": "任意能跑浏览器自动化与 PIL 的 Agent", "notes": "完整步骤见 skills/pdd-backend-sku-sync/SKILL.md。" }
+  },
+  "safety": {
+    "risk": "medium",
+    "confirmation_required": [
+      "提交/发布商品（对外动作）",
+      "详情页替换/前置（须老板点名）"
+    ],
+    "forbidden": [
+      "修改参照商品（只读）",
+      "未做 dHash 校验就声称对齐",
+      "读取密码/cookie，写入任何密钥"
+    ]
+  },
+  "fallbacks": [
+    "SKU图上传不弹窗：那是隐藏file input，直接用文件注入，不要点系统对话框",
+    "视口外行读不到：虚拟滚动，用滚动容器 scrollTop 小步遍历",
+    "参照图非img.src：读 .goods-sku-img 的 background-image url"
+  ],
+  "verification": {
+    "last_verified": "2026-10-13",
+    "method": [
+      "目标 711514793460 对齐参照 699950114171，26 个 SKU 全部对齐",
+      "26 张预览图 dHash 距离 0~2，保存草稿成功、错误归零"
+    ],
+    "result": "verified"
+  },
+  "source": {
+    "origin": "F:/AI共享知识库项目_执行版/skills/pdd-backend-sku-sync/SKILL.md",
+    "author": "doubao",
+    "license": "internal",
+    "trust": "verified"
+  },
+  "secrets": [],
+  "related_skills": [
+    "ai-ecommerce-expert-pinduoduo-ecommerce-content",
+    "ai-ecommerce-expert-batch-sku-content-production"
+  ],
+  "change_log": [
+    "1.0.0 2026-10-13 初版：拼多多后台SKU批量对齐+预览图+详情页换图实测打通"
+  ]
+}
